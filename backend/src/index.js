@@ -100,7 +100,7 @@ app.use('/api/*', (req, res) => {
 });
 
 // フロントエンド静的ファイルの配信
-const frontendPath = path.join(__dirname, '../../public');
+const frontendPath = path.join(__dirname, '../public');
 app.use(express.static(frontendPath));
 
 // React SPA ルーティング（全ての非APIリクエストをindex.htmlへ）
