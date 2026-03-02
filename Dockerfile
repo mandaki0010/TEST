@@ -39,7 +39,11 @@ COPY --from=frontend-builder /frontend/build ./public
 # SQLite DB とログのディレクトリ
 RUN mkdir -p data logs
 
+# 起動スクリプトに実行権限を付与
+RUN chmod +x src/start.sh
+
 # Cloud Run が PORT 環境変数を注入（デフォルト 8080）
 EXPOSE 8080
 
-CMD ["node", "src/index.js"]
+# 起動時にマイグレーション・シードを実行してからサーバーを起動
+CMD ["sh", "src/start.sh"]
