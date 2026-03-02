@@ -1,8 +1,7 @@
 require('dotenv').config();
-const db = require('../config/database');
+const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
 
-// 部署データ
 const departments = [
   { name: '経営企画部', parent: null, sort: 1 },
   { name: '人事部', parent: null, sort: 2 },
@@ -16,7 +15,6 @@ const departments = [
   { name: 'カスタマーサポート部', parent: null, sort: 10 }
 ];
 
-// 雇用形態データ
 const employmentTypes = [
   { name: '正社員', sort: 1 },
   { name: '契約社員', sort: 2 },
@@ -24,7 +22,6 @@ const employmentTypes = [
   { name: 'アルバイト', sort: 4 }
 ];
 
-// 役職データ
 const positions = [
   { name: '代表取締役', level: 10, sort: 1 },
   { name: '取締役', level: 9, sort: 2 },
@@ -36,7 +33,6 @@ const positions = [
   { name: '一般', level: 1, sort: 8 }
 ];
 
-// サンプル社員データ
 const sampleEmployees = [
   {
     last_name: '山田', first_name: '太郎',
@@ -92,95 +88,88 @@ const sampleEmployees = [
 
 async function seed() {
   try {
-    // 雇用形態を挿入
-    const insertEmploymentType = db.prepare(
-      'INSERT OR IGNORE INTO employment_types (type_name, sort_order) VALUES (?, ?)'
-    );
+    // 雇用形態
     for (const et of employmentTypes) {
-      insertEmploymentType.run(et.name, et.sort);
+      await pool.query(
+        'INSERT INTO employment_types (type_name, sort_order) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [et.name, et.sort]
+      );
     }
     console.log('Employment types seeded');
 
-    // 役職を挿入
-    const insertPosition = db.prepare(
-      'INSERT OR IGNORE INTO positions (position_name, position_level, sort_order) VALUES (?, ?, ?)'
-    );
+    // 役職
     for (const pos of positions) {
-      insertPosition.run(pos.name, pos.level, pos.sort);
+      await pool.query(
+        'INSERT INTO positions (position_name, position_level, sort_order) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        [pos.name, pos.level, pos.sort]
+      );
     }
     console.log('Positions seeded');
 
-    // 部署を挿入（親部署なしのものを先に）
-    const insertDepartment = db.prepare(
-      'INSERT OR IGNORE INTO departments (department_name, parent_department_id, sort_order) VALUES (?, ?, ?)'
-    );
-    const getDepartmentId = db.prepare('SELECT department_id FROM departments WHERE department_name = ?');
-
-    // まず親部署なしのものを挿入
+    // 部署（親なし先行）
     for (const dept of departments.filter(d => !d.parent)) {
-      insertDepartment.run(dept.name, null, dept.sort);
+      await pool.query(
+        'INSERT INTO departments (department_name, parent_department_id, sort_order) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        [dept.name, null, dept.sort]
+      );
     }
-    // 次に親部署ありのものを挿入
     for (const dept of departments.filter(d => d.parent)) {
-      const parentRow = getDepartmentId.get(dept.parent);
-      const parentId = parentRow ? parentRow.department_id : null;
-      insertDepartment.run(dept.name, parentId, dept.sort);
+      const { rows } = await pool.query(
+        'SELECT department_id FROM departments WHERE department_name = $1',
+        [dept.parent]
+      );
+      const parentId = rows[0]?.department_id || null;
+      await pool.query(
+        'INSERT INTO departments (department_name, parent_department_id, sort_order) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        [dept.name, parentId, dept.sort]
+      );
     }
     console.log('Departments seeded');
 
-    // サンプル社員を挿入
-    const getEmploymentTypeId = db.prepare('SELECT type_id FROM employment_types WHERE type_name = ?');
-    const getPositionId = db.prepare('SELECT position_id FROM positions WHERE position_name = ?');
-
-    const insertEmployee = db.prepare(`
-      INSERT OR IGNORE INTO employees (
-        employee_id, last_name, first_name, last_name_kana, first_name_kana,
-        department_id, position_id, hire_date, email, phone, birth_date,
-        postal_code, prefecture, city, address_line1, address_line2,
-        employment_type_id, employment_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
-    `);
-
-    const insertUser = db.prepare(`
-      INSERT OR IGNORE INTO users (employee_id, username, password_hash, role)
-      VALUES (?, ?, ?, ?)
-    `);
-
-    const updateSequence = db.prepare('UPDATE employee_id_sequence SET last_number = ? WHERE id = 1');
-
+    // 社員・ユーザー
     let employeeNumber = 1;
     for (const emp of sampleEmployees) {
-      const deptRow = getDepartmentId.get(emp.department);
-      const posRow = getPositionId.get(emp.position);
-      const etRow = getEmploymentTypeId.get(emp.employment_type);
+      const deptRow = await pool.query('SELECT department_id FROM departments WHERE department_name = $1', [emp.department]);
+      const posRow = await pool.query('SELECT position_id FROM positions WHERE position_name = $1', [emp.position]);
+      const etRow = await pool.query('SELECT type_id FROM employment_types WHERE type_name = $1', [emp.employment_type]);
 
       const employeeId = String(employeeNumber).padStart(8, '0');
 
-      insertEmployee.run(
-        employeeId,
-        emp.last_name, emp.first_name,
-        emp.last_name_kana, emp.first_name_kana,
-        deptRow ? deptRow.department_id : 1,
-        posRow ? posRow.position_id : null,
-        emp.hire_date, emp.email, emp.phone, emp.birth_date,
-        emp.postal_code, emp.prefecture, emp.city,
-        emp.address_line1, emp.address_line2 || null,
-        etRow ? etRow.type_id : 1
+      await pool.query(
+        `INSERT INTO employees (
+          employee_id, last_name, first_name, last_name_kana, first_name_kana,
+          department_id, position_id, hire_date, email, phone, birth_date,
+          postal_code, prefecture, city, address_line1, address_line2,
+          employment_type_id, employment_status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'active')
+        ON CONFLICT DO NOTHING`,
+        [
+          employeeId, emp.last_name, emp.first_name, emp.last_name_kana, emp.first_name_kana,
+          deptRow.rows[0]?.department_id || 1, posRow.rows[0]?.position_id || null,
+          emp.hire_date, emp.email, emp.phone, emp.birth_date,
+          emp.postal_code, emp.prefecture, emp.city, emp.address_line1, null,
+          etRow.rows[0]?.type_id || 1
+        ]
       );
 
-      // ユーザーアカウント作成（パスワード: password123）
       const passwordHash = await bcrypt.hash('password123', 12);
       const username = emp.email.split('@')[0];
       const role = emp.is_admin ? 'admin' : 'employee';
-      insertUser.run(employeeId, username, passwordHash, role);
+      await pool.query(
+        'INSERT INTO users (employee_id, username, password_hash, role) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+        [employeeId, username, passwordHash, role]
+      );
 
       employeeNumber++;
     }
 
-    updateSequence.run(employeeNumber - 1);
+    await pool.query(
+      'UPDATE employee_id_sequence SET last_number = $1 WHERE id = 1',
+      [employeeNumber - 1]
+    );
+
     console.log('Sample employees and users seeded');
     console.log('Default password for all users: password123');
-
     console.log('\nSeed completed successfully!');
   } catch (error) {
     console.error('Seed failed:', error.message);

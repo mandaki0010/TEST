@@ -1,18 +1,26 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const { Pool } = require('pg');
 
-const dbPath = process.env.DATABASE_PATH || './data/employees.db';
-const dbDir = path.dirname(dbPath);
+let poolConfig;
 
-// Ensure database directory exists
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+if (process.env.INSTANCE_CONNECTION_NAME) {
+  // Cloud Run: Cloud SQL へ Unix ソケット経由で接続
+  poolConfig = {
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
+  };
+} else {
+  // ローカル開発: TCP 接続
+  poolConfig = {
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'postgres',
+    database: process.env.DB_NAME || 'employees',
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT) || 5432,
+  };
 }
 
-const db = new Database(dbPath);
+const pool = new Pool(poolConfig);
 
-// Enable foreign keys
-db.pragma('foreign_keys = ON');
-
-module.exports = db;
+module.exports = pool;

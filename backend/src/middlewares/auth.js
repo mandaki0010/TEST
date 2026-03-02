@@ -4,7 +4,7 @@ const User = require('../models/User');
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-in-production';
 
 // JWT認証ミドルウェア
-const authenticate = (req, res, next) => {
+const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -15,7 +15,7 @@ const authenticate = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = User.findById(decoded.userId);
+    const user = await User.findById(decoded.userId);
 
     if (!user || !user.is_active) {
       return res.status(401).json({ error: '無効なトークンです' });

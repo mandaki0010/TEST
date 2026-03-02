@@ -9,38 +9,22 @@ RUN npm install
 COPY frontend/public/ ./public/
 COPY frontend/src/ ./src/
 
-# 同一オリジンのため REACT_APP_API_URL は /api のまま（デフォルト）
 RUN npm run build
 
-# ===== Stage 2: Backend Dependencies =====
-FROM node:20-alpine AS backend-deps
-
-WORKDIR /app
-
-# better-sqlite3 のコンパイルに必要
-RUN apk add --no-cache python3 make g++
-
-COPY backend/package.json ./
-RUN npm install --omit=dev
-
-# ===== Stage 3: Production =====
+# ===== Stage 2: Production =====
 FROM node:20-alpine
 
 WORKDIR /app
 
-# バックエンド依存関係とソースをコピー
-COPY --from=backend-deps /app/node_modules ./node_modules
-COPY backend/src/ ./src/
 COPY backend/package.json ./
+RUN npm install --omit=dev
+
+COPY backend/src/ ./src/
 
 # フロントエンドのビルド成果物をコピー（Express が配信）
 COPY --from=frontend-builder /frontend/build ./public
 
-# SQLite DB とログのディレクトリ
-RUN mkdir -p data logs
-
-# 起動スクリプトに実行権限を付与
-RUN chmod +x src/start.sh
+RUN mkdir -p logs && chmod +x src/start.sh
 
 # Cloud Run が PORT 環境変数を注入（デフォルト 8080）
 EXPOSE 8080

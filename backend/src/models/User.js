@@ -1,59 +1,54 @@
-const db = require('../config/database');
+const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || 5;
-const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const LOCK_DURATION_MS = 15 * 60 * 1000;
 
 class User {
   static async create(data) {
     const passwordHash = await bcrypt.hash(data.password, 12);
-
-    const stmt = db.prepare(`
-      INSERT INTO users (employee_id, username, password_hash, role)
-      VALUES (?, ?, ?, ?)
-    `);
-
-    const result = stmt.run(
-      data.employee_id,
-      data.username,
-      passwordHash,
-      data.role || 'employee'
+    const { rows } = await pool.query(
+      `INSERT INTO users (employee_id, username, password_hash, role)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [data.employee_id, data.username, passwordHash, data.role || 'employee']
     );
-
-    return { id: result.lastInsertRowid };
+    return { id: rows[0].id };
   }
 
-  static findById(id) {
-    const stmt = db.prepare(`
-      SELECT u.*, e.last_name, e.first_name, e.email, d.department_name
-      FROM users u
-      LEFT JOIN employees e ON u.employee_id = e.employee_id
-      LEFT JOIN departments d ON e.department_id = d.department_id
-      WHERE u.id = ?
-    `);
-    return stmt.get(id);
+  static async findById(id) {
+    const { rows } = await pool.query(
+      `SELECT u.*, e.last_name, e.first_name, e.email, d.department_name
+       FROM users u
+       LEFT JOIN employees e ON u.employee_id = e.employee_id
+       LEFT JOIN departments d ON e.department_id = d.department_id
+       WHERE u.id = $1`,
+      [id]
+    );
+    return rows[0] || null;
   }
 
-  static findByUsername(username) {
-    const stmt = db.prepare(`
-      SELECT u.*, e.last_name, e.first_name, e.email, e.department_id, d.department_name
-      FROM users u
-      LEFT JOIN employees e ON u.employee_id = e.employee_id
-      LEFT JOIN departments d ON e.department_id = d.department_id
-      WHERE u.username = ?
-    `);
-    return stmt.get(username);
+  static async findByUsername(username) {
+    const { rows } = await pool.query(
+      `SELECT u.*, e.last_name, e.first_name, e.email, e.department_id, d.department_name
+       FROM users u
+       LEFT JOIN employees e ON u.employee_id = e.employee_id
+       LEFT JOIN departments d ON e.department_id = d.department_id
+       WHERE u.username = $1`,
+      [username]
+    );
+    return rows[0] || null;
   }
 
-  static findByEmployeeId(employeeId) {
-    const stmt = db.prepare(`
-      SELECT u.*, e.last_name, e.first_name, e.email, d.department_name
-      FROM users u
-      LEFT JOIN employees e ON u.employee_id = e.employee_id
-      LEFT JOIN departments d ON e.department_id = d.department_id
-      WHERE u.employee_id = ?
-    `);
-    return stmt.get(employeeId);
+  static async findByEmployeeId(employeeId) {
+    const { rows } = await pool.query(
+      `SELECT u.*, e.last_name, e.first_name, e.email, d.department_name
+       FROM users u
+       LEFT JOIN employees e ON u.employee_id = e.employee_id
+       LEFT JOIN departments d ON e.department_id = d.department_id
+       WHERE u.employee_id = $1`,
+      [employeeId]
+    );
+    return rows[0] || null;
   }
 
   static async validatePassword(user, password) {
@@ -65,54 +60,58 @@ class User {
     return new Date(user.locked_until) > new Date();
   }
 
-  static incrementLoginAttempts(userId) {
-    const user = db.prepare('SELECT login_attempts FROM users WHERE id = ?').get(userId);
-    const attempts = (user?.login_attempts || 0) + 1;
+  static async incrementLoginAttempts(userId) {
+    const { rows } = await pool.query(
+      'SELECT login_attempts FROM users WHERE id = $1',
+      [userId]
+    );
+    const attempts = ((rows[0]?.login_attempts) || 0) + 1;
 
     if (attempts >= MAX_LOGIN_ATTEMPTS) {
       const lockedUntil = new Date(Date.now() + LOCK_DURATION_MS).toISOString();
-      db.prepare(`
-        UPDATE users SET login_attempts = ?, locked_until = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(attempts, lockedUntil, userId);
+      await pool.query(
+        `UPDATE users SET login_attempts = $1, locked_until = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [attempts, lockedUntil, userId]
+      );
     } else {
-      db.prepare(`
-        UPDATE users SET login_attempts = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(attempts, userId);
+      await pool.query(
+        `UPDATE users SET login_attempts = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [attempts, userId]
+      );
     }
-
     return attempts;
   }
 
-  static resetLoginAttempts(userId) {
-    db.prepare(`
-      UPDATE users
-      SET login_attempts = 0, locked_until = NULL, last_login = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(userId);
+  static async resetLoginAttempts(userId) {
+    await pool.query(
+      `UPDATE users
+       SET login_attempts = 0, locked_until = NULL, last_login = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [userId]
+    );
   }
 
   static async updatePassword(userId, newPassword) {
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    db.prepare(`
-      UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(passwordHash, userId);
+    await pool.query(
+      `UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+      [passwordHash, userId]
+    );
   }
 
-  static updateRole(userId, role) {
-    db.prepare(`
-      UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(role, userId);
+  static async updateRole(userId, role) {
+    await pool.query(
+      `UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+      [role, userId]
+    );
   }
 
-  static deactivate(userId) {
-    db.prepare(`
-      UPDATE users SET is_active = 0, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(userId);
+  static async deactivate(userId) {
+    await pool.query(
+      `UPDATE users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [userId]
+    );
   }
 }
 
