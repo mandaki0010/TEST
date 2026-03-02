@@ -1,115 +1,116 @@
-substitutions:
-  _REGION: asia-northeast1
-  _BACKEND_SERVICE: backend
-  _FRONTEND_SERVICE: frontend
-  # デプロイ後に確定するバックエンドの Cloud Run URL を設定
-  # 初回デプロイ後、実際の URL に書き換えてください
-  _BACKEND_URL: https://backend-placeholder.a.run.app
-
 steps:
   # ──────────────────────────────────────────
-  # 1. Backend イメージのビルド
+  # 1. Backend ビルド (test-3)
   # ──────────────────────────────────────────
   - name: gcr.io/cloud-builders/docker
-    id: build-backend
+    id: Build-Backend
     args:
       - build
-      - -t
-      - gcr.io/$PROJECT_ID/${_BACKEND_SERVICE}:$COMMIT_SHA
-      - -t
-      - gcr.io/$PROJECT_ID/${_BACKEND_SERVICE}:latest
+      - '--no-cache'
+      - '-t'
+      - >-
+        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+      - '-f'
+      - backend/Dockerfile
       - ./backend
-
   # ──────────────────────────────────────────
-  # 2. Backend イメージのプッシュ
+  # 2. Backend プッシュ
   # ──────────────────────────────────────────
   - name: gcr.io/cloud-builders/docker
-    id: push-backend
-    waitFor: [build-backend]
+    id: Push-Backend
     args:
       - push
-      - --all-tags
-      - gcr.io/$PROJECT_ID/${_BACKEND_SERVICE}
-
+      - >-
+        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
   # ──────────────────────────────────────────
-  # 3. Frontend イメージのビルド
-  #    REACT_APP_API_URL にバックエンドの URL を渡す
+  # 3. Frontend ビルド (test-3-frontend)
+  #    REACT_APP_API_URL: バックエンドの Cloud Run URL を設定
   # ──────────────────────────────────────────
   - name: gcr.io/cloud-builders/docker
-    id: build-frontend
+    id: Build-Frontend
     args:
       - build
-      - -t
-      - gcr.io/$PROJECT_ID/${_FRONTEND_SERVICE}:$COMMIT_SHA
-      - -t
-      - gcr.io/$PROJECT_ID/${_FRONTEND_SERVICE}:latest
-      - --build-arg
-      - REACT_APP_API_URL=${_BACKEND_URL}/api
+      - '--no-cache'
+      - '-t'
+      - >-
+        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
+      - '--build-arg'
+      - REACT_APP_API_URL=$_BACKEND_URL/api
+      - '-f'
+      - frontend/Dockerfile
       - ./frontend
-
   # ──────────────────────────────────────────
-  # 4. Frontend イメージのプッシュ
+  # 4. Frontend プッシュ
   # ──────────────────────────────────────────
   - name: gcr.io/cloud-builders/docker
-    id: push-frontend
-    waitFor: [build-frontend]
+    id: Push-Frontend
     args:
       - push
-      - --all-tags
-      - gcr.io/$PROJECT_ID/${_FRONTEND_SERVICE}
-
+      - >-
+        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
   # ──────────────────────────────────────────
   # 5. Backend を Cloud Run へデプロイ
   # ──────────────────────────────────────────
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    id: deploy-backend
-    waitFor: [push-backend]
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy-Backend
     entrypoint: gcloud
     args:
       - run
-      - deploy
-      - ${_BACKEND_SERVICE}
-      - --image=gcr.io/$PROJECT_ID/${_BACKEND_SERVICE}:$COMMIT_SHA
-      - --region=${_REGION}
-      - --platform=managed
-      - --allow-unauthenticated
-      - --port=3001
-      - --memory=512Mi
-      - --cpu=1
-      - --min-instances=0
-      - --max-instances=10
-      # SQLite データは Cloud Run Volume (NFS/GCS FUSE) でマウント、
-      # または Cloud SQL への移行を推奨。環境変数で DB パスを制御します。
-      - --set-env-vars=NODE_ENV=production,DATABASE_PATH=/app/data/employees.db
-      # JWT_SECRET など機密情報は Secret Manager で管理してください:
-      # - --set-secrets=JWT_SECRET=jwt-secret:latest
-
+      - services
+      - update
+      - $_SERVICE_NAME
+      - '--platform=managed'
+      - >-
+        --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+      - >-
+        --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
+      - '--region=$_DEPLOY_REGION'
+      - '--port=3001'
+      - '--set-env-vars=NODE_ENV=production,DATABASE_PATH=/app/data/employees.db'
+      - '--quiet'
   # ──────────────────────────────────────────
   # 6. Frontend を Cloud Run へデプロイ
   # ──────────────────────────────────────────
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    id: deploy-frontend
-    waitFor: [push-frontend]
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy-Frontend
     entrypoint: gcloud
     args:
       - run
-      - deploy
-      - ${_FRONTEND_SERVICE}
-      - --image=gcr.io/$PROJECT_ID/${_FRONTEND_SERVICE}:$COMMIT_SHA
-      - --region=${_REGION}
-      - --platform=managed
-      - --allow-unauthenticated
-      - --port=80
-      - --memory=256Mi
-      - --cpu=1
-      - --min-instances=0
-      - --max-instances=5
+      - services
+      - update
+      - $_FRONTEND_SERVICE_NAME
+      - '--platform=managed'
+      - >-
+        --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
+      - >-
+        --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
+      - '--region=$_DEPLOY_REGION'
+      - '--port=80'
+      - '--quiet'
 
 images:
-  - gcr.io/$PROJECT_ID/${_BACKEND_SERVICE}:$COMMIT_SHA
-  - gcr.io/$PROJECT_ID/${_BACKEND_SERVICE}:latest
-  - gcr.io/$PROJECT_ID/${_FRONTEND_SERVICE}:$COMMIT_SHA
-  - gcr.io/$PROJECT_ID/${_FRONTEND_SERVICE}:latest
+  - >-
+    $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+  - >-
+    $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
 
 options:
+  substitutionOption: ALLOW_LOOSE
   logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _DEPLOY_REGION: asia-northeast1
+  _AR_HOSTNAME: asia-northeast1-docker.pkg.dev
+  _TRIGGER_ID: 48e9a424-4269-4778-a171-1658eb723b73
+  _AR_REPOSITORY: cloud-run-source-deploy
+  _AR_PROJECT_ID: mitsuda-464903
+  _PLATFORM: managed
+  _SERVICE_NAME: test-3
+  _FRONTEND_SERVICE_NAME: test-3-frontend
+  # 初回デプロイ後、バックエンドの実際の Cloud Run URL に更新してください
+  _BACKEND_URL: https://test-3-placeholder.a.run.app
+
+tags:
+  - gcp-cloud-build-deploy-cloud-run
+  - gcp-cloud-build-deploy-cloud-run-managed
+  - test-3
