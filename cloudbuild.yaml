@@ -1,59 +1,20 @@
 steps:
-  # ──────────────────────────────────────────
-  # 1. Backend ビルド (test-3)
-  # ──────────────────────────────────────────
   - name: gcr.io/cloud-builders/docker
-    id: Build-Backend
     args:
       - build
       - '--no-cache'
       - '-t'
       - >-
         $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
-      - '-f'
-      - backend/Dockerfile
-      - ./backend
-  # ──────────────────────────────────────────
-  # 2. Backend プッシュ
-  # ──────────────────────────────────────────
+      - .
+    id: Build
   - name: gcr.io/cloud-builders/docker
-    id: Push-Backend
     args:
       - push
       - >-
         $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
-  # ──────────────────────────────────────────
-  # 3. Frontend ビルド (test-3-frontend)
-  #    REACT_APP_API_URL: バックエンドの Cloud Run URL を設定
-  # ──────────────────────────────────────────
-  - name: gcr.io/cloud-builders/docker
-    id: Build-Frontend
-    args:
-      - build
-      - '--no-cache'
-      - '-t'
-      - >-
-        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
-      - '--build-arg'
-      - REACT_APP_API_URL=$_BACKEND_URL/api
-      - '-f'
-      - frontend/Dockerfile
-      - ./frontend
-  # ──────────────────────────────────────────
-  # 4. Frontend プッシュ
-  # ──────────────────────────────────────────
-  - name: gcr.io/cloud-builders/docker
-    id: Push-Frontend
-    args:
-      - push
-      - >-
-        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
-  # ──────────────────────────────────────────
-  # 5. Backend を Cloud Run へデプロイ
-  # ──────────────────────────────────────────
+    id: Push
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    id: Deploy-Backend
-    entrypoint: gcloud
     args:
       - run
       - services
@@ -65,39 +26,16 @@ steps:
       - >-
         --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
       - '--region=$_DEPLOY_REGION'
-      - '--port=3001'
       - '--set-env-vars=NODE_ENV=production,DATABASE_PATH=/app/data/employees.db'
       - '--quiet'
-  # ──────────────────────────────────────────
-  # 6. Frontend を Cloud Run へデプロイ
-  # ──────────────────────────────────────────
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    id: Deploy-Frontend
+    id: Deploy
     entrypoint: gcloud
-    args:
-      - run
-      - services
-      - update
-      - $_FRONTEND_SERVICE_NAME
-      - '--platform=managed'
-      - >-
-        --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
-      - >-
-        --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
-      - '--region=$_DEPLOY_REGION'
-      - '--port=80'
-      - '--quiet'
-
 images:
   - >-
     $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
-  - >-
-    $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_FRONTEND_SERVICE_NAME:$COMMIT_SHA
-
 options:
   substitutionOption: ALLOW_LOOSE
   logging: CLOUD_LOGGING_ONLY
-
 substitutions:
   _DEPLOY_REGION: asia-northeast1
   _AR_HOSTNAME: asia-northeast1-docker.pkg.dev
@@ -106,10 +44,6 @@ substitutions:
   _AR_PROJECT_ID: mitsuda-464903
   _PLATFORM: managed
   _SERVICE_NAME: test-3
-  _FRONTEND_SERVICE_NAME: test-3-frontend
-  # 初回デプロイ後、バックエンドの実際の Cloud Run URL に更新してください
-  _BACKEND_URL: https://test-3-placeholder.a.run.app
-
 tags:
   - gcp-cloud-build-deploy-cloud-run
   - gcp-cloud-build-deploy-cloud-run-managed

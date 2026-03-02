@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const logger = require('./utils/logger');
@@ -93,9 +94,18 @@ app.use('/api/master', apiLimiter, masterRoutes);
 app.use('/api/import', apiLimiter, importRoutes);
 app.use('/api/reports', apiLimiter, reportRoutes);
 
-// 404ハンドラー
+// 404ハンドラー（APIのみ）
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'エンドポイントが見つかりません' });
+});
+
+// フロントエンド静的ファイルの配信
+const frontendPath = path.join(__dirname, '../../public');
+app.use(express.static(frontendPath));
+
+// React SPA ルーティング（全ての非APIリクエストをindex.htmlへ）
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 // エラーハンドラー
