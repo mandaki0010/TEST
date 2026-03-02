@@ -2,9 +2,9 @@ const { Department, Position, EmploymentType, OperationLog } = require('../model
 const logger = require('../utils/logger');
 
 // 部署一覧取得
-const getDepartments = (req, res) => {
+const getDepartments = async (req, res) => {
   try {
-    const departments = Department.findAll();
+    const departments = await Department.findAll();
     res.json(departments);
   } catch (error) {
     logger.error('Get departments error:', error);
@@ -13,9 +13,9 @@ const getDepartments = (req, res) => {
 };
 
 // 部署階層取得
-const getDepartmentHierarchy = (req, res) => {
+const getDepartmentHierarchy = async (req, res) => {
   try {
-    const hierarchy = Department.getHierarchy();
+    const hierarchy = await Department.getHierarchy();
     res.json(hierarchy);
   } catch (error) {
     logger.error('Get department hierarchy error:', error);
@@ -24,7 +24,7 @@ const getDepartmentHierarchy = (req, res) => {
 };
 
 // 部署登録
-const createDepartment = (req, res) => {
+const createDepartment = async (req, res) => {
   try {
     const { department_name, parent_department_id, sort_order } = req.body;
 
@@ -32,7 +32,7 @@ const createDepartment = (req, res) => {
       return res.status(400).json({ error: '部署名は必須です' });
     }
 
-    const result = Department.create({
+    const result = await Department.create({
       department_name,
       parent_department_id,
       sort_order
@@ -56,7 +56,7 @@ const createDepartment = (req, res) => {
     });
   } catch (error) {
     logger.error('Create department error:', error);
-    if (error.message?.includes('UNIQUE constraint failed')) {
+    if (error.code === '23505') {
       return res.status(400).json({ error: 'この部署名は既に使用されています' });
     }
     res.status(500).json({ error: '部署登録中にエラーが発生しました' });
@@ -64,17 +64,17 @@ const createDepartment = (req, res) => {
 };
 
 // 部署更新
-const updateDepartment = (req, res) => {
+const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
     const { department_name, parent_department_id, sort_order } = req.body;
 
-    const existing = Department.findById(id);
+    const existing = await Department.findById(id);
     if (!existing) {
       return res.status(404).json({ error: '部署が見つかりません' });
     }
 
-    Department.update(id, {
+    await Department.update(id, {
       department_name: department_name || existing.department_name,
       parent_department_id,
       sort_order: sort_order ?? existing.sort_order
@@ -101,9 +101,9 @@ const updateDepartment = (req, res) => {
 };
 
 // 役職一覧取得
-const getPositions = (req, res) => {
+const getPositions = async (req, res) => {
   try {
-    const positions = Position.findAll();
+    const positions = await Position.findAll();
     res.json(positions);
   } catch (error) {
     logger.error('Get positions error:', error);
@@ -112,9 +112,9 @@ const getPositions = (req, res) => {
 };
 
 // 雇用形態一覧取得
-const getEmploymentTypes = (req, res) => {
+const getEmploymentTypes = async (req, res) => {
   try {
-    const types = EmploymentType.findAll();
+    const types = await EmploymentType.findAll();
     res.json(types);
   } catch (error) {
     logger.error('Get employment types error:', error);
@@ -123,10 +123,10 @@ const getEmploymentTypes = (req, res) => {
 };
 
 // 操作ログ取得
-const getOperationLogs = (req, res) => {
+const getOperationLogs = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
-    const logs = OperationLog.findRecent(limit);
+    const logs = await OperationLog.findRecent(limit);
     res.json(logs);
   } catch (error) {
     logger.error('Get operation logs error:', error);

@@ -6,12 +6,8 @@ const logger = require('../utils/logger');
 const path = require('path');
 const fs = require('fs');
 
-// 日本語フォントパス（システムフォントを使用）
-const fontPath = '/usr/share/fonts/truetype/fonts-japanese-gothic.ttf';
-const fallbackFontPath = path.join(__dirname, '../../assets/fonts/NotoSansJP-Regular.ttf');
-
 // 社員名簿出力（Excel）
-const exportEmployeeListExcel = (req, res) => {
+const exportEmployeeListExcel = async (req, res) => {
   try {
     const filters = {
       name: req.query.name,
@@ -19,7 +15,7 @@ const exportEmployeeListExcel = (req, res) => {
       employment_status: req.query.employment_status || 'active'
     };
 
-    const employees = Employee.findAll(filters, { limit: 1000, sortBy: 'last_name_kana' });
+    const employees = await Employee.findAll(filters, { limit: 1000, sortBy: 'last_name_kana' });
 
     const data = employees.map(emp => ({
       '社員番号': emp.employee_id,
@@ -74,7 +70,7 @@ const exportEmployeeListExcel = (req, res) => {
 };
 
 // 社員名簿出力（PDF）
-const exportEmployeeListPDF = (req, res) => {
+const exportEmployeeListPDF = async (req, res) => {
   try {
     const filters = {
       name: req.query.name,
@@ -82,7 +78,7 @@ const exportEmployeeListPDF = (req, res) => {
       employment_status: req.query.employment_status || 'active'
     };
 
-    const employees = Employee.findAll(filters, { limit: 500, sortBy: 'last_name_kana' });
+    const employees = await Employee.findAll(filters, { limit: 500, sortBy: 'last_name_kana' });
 
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
 
@@ -160,18 +156,18 @@ const exportEmployeeListPDF = (req, res) => {
 };
 
 // 部署別名簿出力（Excel）
-const exportDepartmentListExcel = (req, res) => {
+const exportDepartmentListExcel = async (req, res) => {
   try {
-    const departments = Department.findAll();
+    const departments = await Department.findAll();
     const wb = XLSX.utils.book_new();
 
-    departments.forEach(dept => {
-      const employees = Employee.findAll(
+    for (const dept of departments) {
+      const employees = await Employee.findAll(
         { department_id: dept.department_id, employment_status: 'active' },
         { limit: 500, sortBy: 'last_name_kana' }
       );
 
-      if (employees.length === 0) return;
+      if (employees.length === 0) continue;
 
       const data = employees.map(emp => ({
         '社員番号': emp.employee_id,
@@ -186,7 +182,7 @@ const exportDepartmentListExcel = (req, res) => {
       // シート名は31文字以内、特殊文字除去
       const sheetName = dept.department_name.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    });
+    }
 
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
@@ -209,10 +205,22 @@ const exportDepartmentListExcel = (req, res) => {
 };
 
 // 組織図出力（PDF）
-const exportOrganizationChartPDF = (req, res) => {
+const exportOrganizationChartPDF = async (req, res) => {
   try {
-    const hierarchy = Department.getHierarchy();
-    const positions = Position.findAll();
+    const [hierarchy, positions] = await Promise.all([
+      Department.getHierarchy(),
+      Position.findAll()
+    ]);
+
+    // 全部署の在籍者数を事前取得
+    const allDepts = await Department.findAll();
+    const countMap = new Map();
+    await Promise.all(
+      allDepts.map(async dept => {
+        const count = await Employee.count({ department_id: dept.department_id, employment_status: 'active' });
+        countMap.set(dept.department_id, count);
+      })
+    );
 
     const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 40 });
 
@@ -227,25 +235,23 @@ const exportOrganizationChartPDF = (req, res) => {
     doc.fontSize(10).text(`Generated: ${new Date().toLocaleDateString('ja-JP')}`, { align: 'right' });
     doc.moveDown(2);
 
-    // 組織図描画
+    // 組織図描画（事前取得したcountMapを使用）
     const drawDepartment = (dept, level = 0, x = 60, y = doc.y) => {
       const boxWidth = 150;
       const boxHeight = 30;
-      const padding = 10;
 
       // 部署ボックス
       doc.rect(x, y, boxWidth, boxHeight).stroke();
       doc.fontSize(10).text(dept.department_name, x + 5, y + 10, { width: boxWidth - 10 });
 
-      // 所属人数を取得
-      const count = Employee.count({ department_id: dept.department_id, employment_status: 'active' });
+      const count = countMap.get(dept.department_id) || 0;
       doc.fontSize(8).text(`(${count})`, x + boxWidth - 30, y + 10);
 
       let nextY = y + boxHeight + 20;
 
       // 子部署を描画
       if (dept.children && dept.children.length > 0) {
-        dept.children.forEach((child, index) => {
+        dept.children.forEach(child => {
           drawDepartment(child, level + 1, x + 40, nextY);
           nextY += 50;
         });
@@ -280,9 +286,9 @@ const exportOrganizationChartPDF = (req, res) => {
 };
 
 // 在籍者リスト出力（Excel）
-const exportActiveEmployeesExcel = (req, res) => {
+const exportActiveEmployeesExcel = async (req, res) => {
   try {
-    const employees = Employee.findAll(
+    const employees = await Employee.findAll(
       { employment_status: 'active' },
       { limit: 1000, sortBy: 'last_name_kana' }
     );

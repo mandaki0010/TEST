@@ -34,9 +34,11 @@ const uploadCSV = async (req, res) => {
     }
 
     // マスタデータ取得
-    const departments = Department.findAll();
-    const employmentTypes = EmploymentType.findAll();
-    const positions = Position.findAll();
+    const [departments, employmentTypes, positions] = await Promise.all([
+      Department.findAll(),
+      EmploymentType.findAll(),
+      Position.findAll()
+    ]);
 
     const deptMap = new Map(departments.map(d => [d.department_name, d.department_id]));
     const etMap = new Map(employmentTypes.map(e => [e.type_name, e.type_id]));
@@ -155,7 +157,7 @@ const uploadCSV = async (req, res) => {
 
     for (const record of validRecords) {
       try {
-        const result = Employee.create(record);
+        const result = await Employee.create(record);
         results.success++;
         results.employees.push(result.employee_id);
 

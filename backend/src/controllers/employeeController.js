@@ -4,7 +4,7 @@ const { OperationLog } = require('../models/Master');
 const logger = require('../utils/logger');
 
 // 社員一覧取得
-const getEmployees = (req, res) => {
+const getEmployees = async (req, res) => {
   try {
     const filters = {
       name: req.query.name,
@@ -21,8 +21,10 @@ const getEmployees = (req, res) => {
       sortOrder: req.query.sortOrder || 'ASC'
     };
 
-    const employees = Employee.findAll(filters, options);
-    const total = Employee.count(filters);
+    const [employees, total] = await Promise.all([
+      Employee.findAll(filters, options),
+      Employee.count(filters)
+    ]);
     const totalPages = Math.ceil(total / options.limit);
 
     res.json({
@@ -41,10 +43,10 @@ const getEmployees = (req, res) => {
 };
 
 // 社員詳細取得
-const getEmployee = (req, res) => {
+const getEmployee = async (req, res) => {
   try {
     const { employeeId } = req.params;
-    const employee = Employee.findById(employeeId);
+    const employee = await Employee.findById(employeeId);
 
     if (!employee) {
       return res.status(404).json({ error: '社員が見つかりません' });
@@ -58,11 +60,11 @@ const getEmployee = (req, res) => {
 };
 
 // 社員登録
-const createEmployee = (req, res) => {
+const createEmployee = async (req, res) => {
   try {
     const data = req.body;
 
-    const result = Employee.create(data);
+    const result = await Employee.create(data);
 
     // 操作ログ記録
     OperationLog.create({
@@ -83,7 +85,7 @@ const createEmployee = (req, res) => {
     });
   } catch (error) {
     logger.error('Create employee error:', error);
-    if (error.message?.includes('UNIQUE constraint failed')) {
+    if (error.code === '23505') {
       return res.status(400).json({ error: '登録に失敗しました。重複するデータが存在します' });
     }
     res.status(500).json({ error: '社員登録中にエラーが発生しました' });
@@ -91,19 +93,19 @@ const createEmployee = (req, res) => {
 };
 
 // 社員更新
-const updateEmployee = (req, res) => {
+const updateEmployee = async (req, res) => {
   try {
     const { employeeId } = req.params;
     const data = req.body;
 
     // 既存データ取得（ログ用）
-    const oldEmployee = Employee.findById(employeeId);
+    const oldEmployee = await Employee.findById(employeeId);
 
     if (!oldEmployee) {
       return res.status(404).json({ error: '社員が見つかりません' });
     }
 
-    const result = Employee.update(employeeId, data);
+    const result = await Employee.update(employeeId, data);
 
     if (result.changes === 0) {
       return res.status(400).json({ error: '更新するデータがありません' });
@@ -131,11 +133,11 @@ const updateEmployee = (req, res) => {
 };
 
 // 社員削除（退職処理）
-const deleteEmployee = (req, res) => {
+const deleteEmployee = async (req, res) => {
   try {
     const { employeeId } = req.params;
 
-    const employee = Employee.findById(employeeId);
+    const employee = await Employee.findById(employeeId);
 
     if (!employee) {
       return res.status(404).json({ error: '社員が見つかりません' });
@@ -145,12 +147,12 @@ const deleteEmployee = (req, res) => {
       return res.status(400).json({ error: 'この社員は既に退職処理されています' });
     }
 
-    Employee.delete(employeeId);
+    await Employee.delete(employeeId);
 
     // 関連するユーザーアカウントを無効化
-    const user = User.findByEmployeeId(employeeId);
+    const user = await User.findByEmployeeId(employeeId);
     if (user) {
-      User.deactivate(user.id);
+      await User.deactivate(user.id);
     }
 
     // 操作ログ記録
@@ -174,9 +176,9 @@ const deleteEmployee = (req, res) => {
 };
 
 // 統計情報取得
-const getStatistics = (req, res) => {
+const getStatistics = async (req, res) => {
   try {
-    const stats = Employee.getStatistics();
+    const stats = await Employee.getStatistics();
     res.json(stats);
   } catch (error) {
     logger.error('Get statistics error:', error);
@@ -185,9 +187,9 @@ const getStatistics = (req, res) => {
 };
 
 // 自分の情報取得
-const getMyInfo = (req, res) => {
+const getMyInfo = async (req, res) => {
   try {
-    const employee = Employee.findById(req.user.employeeId);
+    const employee = await Employee.findById(req.user.employeeId);
 
     if (!employee) {
       return res.status(404).json({ error: '社員情報が見つかりません' });
@@ -201,7 +203,7 @@ const getMyInfo = (req, res) => {
 };
 
 // 自分の情報更新
-const updateMyInfo = (req, res) => {
+const updateMyInfo = async (req, res) => {
   try {
     const data = req.body;
 
@@ -219,8 +221,8 @@ const updateMyInfo = (req, res) => {
       return res.status(400).json({ error: '更新するデータがありません' });
     }
 
-    const oldEmployee = Employee.findById(req.user.employeeId);
-    const result = Employee.update(req.user.employeeId, filteredData);
+    const oldEmployee = await Employee.findById(req.user.employeeId);
+    const result = await Employee.update(req.user.employeeId, filteredData);
 
     if (result.changes === 0) {
       return res.status(400).json({ error: '更新に失敗しました' });
